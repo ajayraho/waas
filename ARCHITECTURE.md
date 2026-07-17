@@ -57,7 +57,7 @@ The platform itself is **generic and multi-tenant** — any business running a w
 
 **Decision 1 — Hybrid queue model.** Each product gets a fully isolated Redis Sorted Set keyed as `waitlist:{waitlistId}:queue`. Every entry also carries a `waitlistId` tag in PostgreSQL, enabling cross-waitlist queries ("all queues where user X is waiting," "all active waitlists") without touching Redis. Redis owns live queue state (speed layer); PostgreSQL owns the queryable persistent record (durability layer). If Redis crashes, the sorted set can be rebuilt from PostgreSQL.
 
-> **Open dependency on this decision:** rebuilding requires PostgreSQL to store something equivalent to score order (e.g., `join_sequence` + cumulative bump amount), not just timestamps/state. This must be nailed down during schema design — see [§13](#13-open--not-yet-decided).
+> **Resolved (2026-07-18):** PostgreSQL must store a `join_sequence` column (integer, assigned at join time) as the score-equivalent anchor. ZSET score = `join_sequence` minus total bumps applied. Crash recovery replays every entry's `join_sequence` back into a fresh ZSET. See §15 (Data Flow) for how this is written in the hot path.
 
 **Decision 2 — Bank referral credits within the same waitlist.** When A refers B and earns a bump, but A is already at position 1 or in soft reservation, the credit is banked in a `referral_credit` ledger per user per waitlist in PostgreSQL instead of being discarded. Credits only activate when the person is not already at the front. A state check runs before applying credits to prevent double-dipping.
 
@@ -77,7 +77,7 @@ Redis does sorted-set ops in O(log N) in memory, no disk — essential for join/
 
 On any position change, the queue service publishes to `waitlist:{id}:events`. The broadcast service subscribes and fans out to WebSocket clients immediately. Decouples the write path from the notification path. Polling Redis from every client every second would mean thousands of requests/sec with mostly no new data.
 
-> **Known gap at scale:** Redis Pub/Sub is fire-and-forget — a disconnected/slow subscriber just misses messages, no replay. See [§12.2](#122-real-time-delivery).
+> **Resolution (locked 2026-07-18):** In our build the publisher (Core Queue Service) and subscriber (WebSocket Gateway) are separate processes but the gap still doesn't bite us — if the gateway restarts, all WebSocket connections drop anyway and clients reconnect. On reconnect the client sends `{ userId, waitlistId }`; the gateway does `ZRANK` and immediately pushes current position. Client is fully re-synced in one round trip, no replay needed. The fire-and-forget gap only becomes real when multiple gateway instances run concurrently and some miss events — the upgrade path there is **Redis Streams** (durable ordered log, consumer groups with per-consumer offsets so a restarting instance resumes from its last `XACK`). That's a one-topology-step upgrade, documented in §12.2, not built yet.
 
 ---
 
@@ -202,30 +202,139 @@ Eight bounded contexts, split by **where scaling/failure characteristics actuall
 | Fraud/Abuse | Referral velocity checks, device/IP fingerprinting | Called by Referral before a credit is applied |
 | Tenant/Admin | CRUD for waitlist config — groupPolicy, reservation window, priority rules | Postgres, low volume |
 
-**Deployment grouping:**
+**Actual deployment (locked 2026-07-18) — two services, four Docker containers:**
 
-- **Core Queue Service (one modular monolith)** — Queue + Reservation + Referral/Credit + Group (+ Tenant/Admin) as hard-interfaced internal modules, not separate deployables. Reasoning: these four share the same transaction boundary and the same hot-path data (the ZSET + the entry row) — every join/bump/reservation touches the same key and row in the same logical operation, so they scale 1:1 with each other. Splitting them today buys nothing but network hops and distributed-transaction pain (e.g. Referral calling back into Queue to apply a bump would cross a network boundary for no scaling benefit).
-- **Four standalone services from day one** — Admission/Gateway, Broadcast, WebSocket Gateway, Fraud/Abuse. Each scales on a genuinely different axis: Gateway on request rate at the edge, WebSocket Gateway on *concurrent connections* (not request rate — a quiet waitlist with 500K idle watchers costs as much as a busy one), Broadcast on event volume, Fraud on its own evolution velocity (rules/scoring change independently of queue logic). Note this lines up exactly with the three areas already tagged 🔵 deep-design in [§12](#12-production-scale-system-design-concept-catalog) (Admission, Real-time delivery, Security/fraud) — the places that earned full design depth are the same places that earn an actual network boundary.
+| Container | What it is |
+|---|---|
+| `core-queue-service` | Spring Boot monolith: Queue + Reservation + Referral/Credit + Group + Tenant/Admin modules, plus rate-limiting and idempotency middleware |
+| `websocket-gateway` | Spring Boot app: holds all client WebSocket/STOMP connections, subscribes to `waitlist:{id}:events`, pushes position updates |
+| `redis` | Sorted Sets (live queue state) + Pub/Sub (event channel) |
+| `postgres` | Durable record, credit ledger, cross-waitlist queries |
 
-Guiding principle to defend in an interview: **monolith-first, extract services along proven/divergent scaling boundaries** — not microservices-by-default.
+**Why exactly this split and no further:** The WebSocket Gateway is the one domain with a genuinely different scaling axis — it scales on *concurrent connections*, completely independent of business logic throughput. A quiet waitlist with 500K idle watchers costs as much gateway capacity as a busy one. It is also fully stateless (Redis holds all queue state), so running multiple gateway instances behind a load balancer requires zero Core Service changes. That earns a real service boundary. Everything else in the Core scales 1:1 with join volume, shares the same Redis key and Postgres row in the same logical operation — splitting them today adds network hops with no benefit.
+
+**What stays as documented scale-out extractions (not built):** Admission/Gateway as a standalone service (rate limiting lives as middleware in Core for now), dedicated Broadcast Service, Fraud/Abuse Service. Each has a documented extraction trigger — the specific scaling pressure that would justify the split.
+
+**Interview framing:** "I designed the system with eight bounded contexts and identified the one that has a genuinely different scaling axis. The other seven are co-deployed today with clear module boundaries that map 1:1 to microservices — here's exactly what scaling pressure would cause me to extract each one."
 
 ---
 
-## 14. Open / Not Yet Decided
+## 14. Build Scope: What We're Building vs. What We've Designed
 
-- PostgreSQL schema design (entity definitions, columns, foreign keys, indexes) — **blocked on** deciding the Decision-1 rebuild-from-Postgres column (score-equivalent: `join_sequence` + cumulative bump amount)
-- How a `STRICT` group occupies the Redis Sorted Set (single `group:{groupId}` member with individual member states tracked separately in PostgreSQL — needs to be finalized before schema)
-- Spring Boot project skeleton
+The most important line to draw for a resume project. A finished, demo-able, defensible project beats a sprawling one that half-works.
+
+### What we're building
+
+| Feature / Component | Why it's in scope |
+|---|---|
+| Join a waitlist → live position number | Core value prop |
+| Real-time position updates via WebSocket | The "wow" moment in a demo |
+| Referral bump with atomic Lua script | Genuine concurrency problem with a concrete proof |
+| Soft reservation state machine (WAITING → RESERVED → CONFIRMED / EXPIRED) | State machine over boolean flags; real interview topic |
+| Group joining with STRICT / PARTIAL policy | Config-driven policy design |
+| Core Queue Service (Spring Boot modular monolith) | All business logic, clean package boundaries reflecting eight domains |
+| WebSocket Gateway (separate Spring Boot app) | The one justified microservice split |
+| Docker Compose: one-command full-stack startup | Non-negotiable for anyone trying to run it |
+| Redis (Sorted Sets + Pub/Sub) | Core architectural choice, fully exercised |
+| PostgreSQL (durable record + credit ledger) | Dual-layer durability story, cross-waitlist queries |
+| Basic React dashboard | Makes it a live demo, not just a Postman collection |
+
+### What we've designed but are not building
+
+These exist in this document as documented architectural extensions. The interview answer: "I've already thought through these — here's the specific trigger that would cause me to build each one."
+
+| Extension | Trigger to build it |
+|---|---|
+| Kafka admission buffer | Join volume spikes saturate sustainable Redis ZADD throughput |
+| Redis Streams (Pub/Sub upgrade) | Horizontal WebSocket Gateway scaling causes message drop |
+| Dedicated Fraud / Abuse Service | Referral velocity checks become a bottleneck in Core |
+| Dedicated Broadcast Service | Event fan-out volume decouples from Core write volume |
+| CDC / outbox pattern | Reconciliation job proves insufficient for the inconsistency window |
+| Redis Cluster + hot-key sharding | A single waitlist saturates one Redis node's write capacity |
+| Postgres partitioning / read replicas | Table scans degrade at observed row counts |
+| Multi-region | Business requirement, not a scaling requirement |
+
+---
+
+## 15. Data Flow: Join Operation (Locked 2026-07-18)
+
+Tracing a single user joining a product-drop waitlist end-to-end.
+
+**Step 1 — Client → Core Queue Service**
+`POST /waitlists/{id}/join` with JWT + client-generated idempotency key. Rate-limiting middleware checks: token valid? idempotency key seen before? per-tenant+user rate limit exceeded? Any failure → reject at the edge, nothing touches Redis or Postgres.
+
+**Step 2 — Two writes, one order: Redis first**
+- `ZADD waitlist:{id}:queue {join_sequence} {userId}` — user is live in the queue, position readable instantly. `join_sequence` is an auto-incrementing integer assigned at write time.
+- Insert `waitlist_entry` row in Postgres immediately after, with `join_sequence` stored as a column. This is the crash-recovery anchor — replaying every row's `join_sequence` back into a fresh ZSET perfectly reconstructs queue order.
+- If Postgres write fails: retry with backoff. If retries exhaust: a periodic reconciliation job detects ZSET members with no backing Postgres row and backfills. Bounded inconsistency window, not silent data loss.
+- Return `202 Accepted` to client. Position confirmation arrives via WebSocket.
+
+**Step 3 — Publish `PositionAssigned` to `waitlist:{id}:events`**
+A plain join appends at the back — no other user's position changes, so only the joining user needs a notification. (A bump is different: it changes the bumped user's score and shifts everyone between old and new position — heavier fan-out, separate trace.)
+
+**Step 4 — WebSocket Gateway pushes the update**
+Subscribed to `waitlist:{id}:events`. Looks up the joining user's open connection and pushes a STOMP frame: `{ userId, waitlistId, position, state: "WAITING" }`. Client spinner resolves.
+
+**Step 5 — Reconnect handling**
+On WebSocket reconnect, client sends `{ userId, waitlistId }`. Gateway calls `ZRANK waitlist:{id}:queue {userId}` and pushes current position immediately. Fully re-synced in one round trip — no replay, no Pub/Sub durability dependency.
+
+---
+
+## 16. Scalability Claim Framing
+
+**Never say:** "This handles millions of users."
+**Say instead:** "Designed for horizontal scalability — here are the specific inflection points and what I'd change at each."
+
+### Three concrete proofs
+
+| Proof | What it demonstrates |
+|---|---|
+| Concurrency test: 100 simultaneous reservation requests → assert exactly 1 succeeds | Show it breaking without the Lua script, show it always passing with it. Most interviewers have never seen a candidate bring a live race condition demo. |
+| k6 / JMeter: 500 concurrent joins, flat p99 latency curve, screenshot in README | Evidence that O(log N) ZADD actually holds under load — a data-backed claim, not a vague one. |
+| This architecture document in the repo | "I identified the scale-out inflection points before writing line one of code." Proof of thinking, not just talking. |
+
+### The "what breaks at 10x" answer
+
+"The WebSocket Gateway hits connection limits first — a single JVM holds around 50–100K concurrent connections. The gateway is stateless so I'd run multiple instances behind a load balancer; they all subscribe to the same Redis event channel, zero Core Service changes needed. Beyond that, a single viral waitlist is one Redis key on one shard regardless of cluster size — `ZADD` is still fast, but you can't distribute a single key. At that point I'd look at bucketed sub-ZSETs merged on read, or accept that Redis single-key throughput handles all but the most extreme cases."
+
+---
+
+## 17. Resume Project Polish Checklist
+
+Ordered by impact. Do these after the core features work.
+
+**Ships the interview:**
+- [ ] `docker compose up` starts the full stack with seed data — zero manual steps
+- [ ] Demo GIF in README: two browser windows, live position update on join, position jump on referral, reservation countdown on reaching position 1
+- [ ] Live hosted link (Railway / Fly.io free tier) — "try it here" ends conversations before they start
+
+**Wins the technical round:**
+- [ ] Concurrency proof test: 100 concurrent reservation requests, assert exactly 1 succeeds — run twice, once with Lua script commented out (show the race), once with it (show the fix)
+- [ ] k6 load test + one latency graph: 500 concurrent joins, flat p99 — screenshot in README
+- [ ] GitHub Actions CI: run tests on every push, green badge on README
+
+**Shows architectural discipline:**
+- [ ] Package structure mirrors bounded contexts: `com.waas.queue`, `com.waas.reservation`, `com.waas.referral`, `com.waas.group` — no wrong-direction cross-package dependencies
+- [ ] OpenAPI / Swagger on Core Service (one Spring Boot dependency, free browsable API docs)
+- [ ] `ARCHITECTURE.md` in repo root — most projects have nothing; a reasoned design doc with a built vs. designed split is itself a differentiator
+
+---
+
+## 18. Open / Not Yet Decided
+
+- How a `STRICT` group occupies the Redis Sorted Set — likely a single `group:{groupId}` member with individual member states tracked in Postgres; needs confirmation before schema design
+- Full PostgreSQL schema — entity definitions, columns, foreign keys, indexes
+- Spring Boot project skeleton and module structure
 - Any code whatsoever
 
-**Next discussion step:** request-level data flow — trace one concrete operation (a join into a product-drop waitlist) end-to-end through every service locked in [§13](#13-service-boundaries--deployment-units-locked-2026-06-26).
+**Next step:** PostgreSQL schema design, anchored on `join_sequence` as the score-reconstruction column (locked in §15).
 
 ---
 
-## 15. Teaching Style Preference
+## 19. Teaching Style Preference
 
 Explain every architectural decision with: the reason for the choice, the tradeoffs, what would break at scale, and what alternatives exist. Never just give code — make it understandable enough to defend in a Flipkart interview. Discuss and lock architecture before writing any code.
 
 ---
 
-*Last updated: 2026-06-26*
+*Last updated: 2026-07-18*
