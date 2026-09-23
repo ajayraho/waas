@@ -1,0 +1,4 @@
+# `demo` profile: also load the repeatable demo seed (db/seed/R__demo_seed.sql).
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
