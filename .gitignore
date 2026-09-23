@@ -1,0 +1,55 @@
+# ---------- Java / Maven ----------
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.log
+hs_err_pid*
+HELP.md
+
+# ---------- Node / Vite ----------
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- IDEs ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.vscode/*
+!.vscode/extensions.json
+.classpath
+.project
+.settings/
+.factorypath
+bin/
+*.swp
+*~
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Secrets / local config ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------- Load test output ----------
+load/report.html
+load/*.json
+
+# ---------- Local-only ----------
+Claude outputs/

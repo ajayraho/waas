@@ -1,0 +1,76 @@
+# One command, full stack:   docker compose up --build
+# Dashboard: http://localhost:3000
+name: waas
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: waas
+      POSTGRES_USER: waas
+      POSTGRES_PASSWORD: waas
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waas -d waas"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # AOF on: Redis restarts keep live queue state; Postgres rebuild (§21.6) is the
+    # fallback for losing the volume entirely, not for every restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  core-queue-service:
+    build: ./core-queue-service
+    environment:
+      SPRING_PROFILES_ACTIVE: demo          # loads the demo seed
+      DB_URL: jdbc:postgresql://postgres:5432/waas
+      DB_USER: waas
+      DB_PASSWORD: waas
+      REDIS_HOST: redis
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  websocket-gateway:
+    build: ./websocket-gateway
+    environment:
+      REDIS_HOST: redis
+      CORE_URL: http://core-queue-service:8080   # read models for dashboard snapshots / terminal states
+    ports: ["8081:8081"]
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    ports: ["3000:80"]
+    depends_on:
+      core-queue-service: { condition: service_healthy }
+      websocket-gateway: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
