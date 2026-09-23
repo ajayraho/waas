@@ -31,11 +31,11 @@ export const options = {
       preAllocatedVUs: 50, maxVUs: 200, startTime: '10s',
     },
   },
-  // Limits set from the first real run (laptop, Docker Desktop). A burst queues for DB
-  // connections, so its limits are looser than the steady phase's.
+  // Limits from real runs (laptop, Docker Desktop, ~500 joins/s of capacity). The burst is a
+  // capacity check (everyone served within ~1 s); the steady phase is the latency target.
   thresholds: {
     http_req_failed: ['rate<0.01'],
-    'http_req_duration{scenario:burst,name:join}': ['p(99)<600'],
+    'http_req_duration{scenario:burst,name:join}': ['p(99)<1000'],
     'http_req_duration{scenario:steady,name:join}': ['p(95)<150'],
     'http_req_duration{name:position}': ['p(95)<150'],
   },

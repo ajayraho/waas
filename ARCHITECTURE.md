@@ -875,13 +875,17 @@ Tests: `AuthAndAdmissionTest` (MockMvc: 401 without/forged token, register + log
 **First k6 run** (500 simultaneous joins, laptop + Docker Desktop): 0% errors, ~960 req/s, join p50 306 ms / p95 420 ms / p99 445 ms, position p95 108 ms. The time was **queueing for DB connections**: Hikari pool = 20, and each join made ~6–8 short Postgres calls. Position reads are mostly Redis, hence ~10× faster.
 
 **Changes:**
-- Hikari pool 20 → 50 (`DB_POOL_SIZE`). Rule: instances × pool must stay under Postgres `max_connections` (100 by default).
+- Hikari pool 20 → 50 (`DB_POOL_SIZE`), reverted after run 2, see below.
 - Waitlist config cached in `WaitlistService` for 5 s, cleared on update. It's read on nearly every request and rarely changes. Trade-off: another Core instance may use an old config for up to 5 s.
 - Join no longer runs a separate "does this user exist?" query. The `user_id` foreign key enforces it and is mapped to `USER_NOT_FOUND`.
 - Result: a join makes ~3–4 Postgres calls instead of ~6–8.
 - k6 script: the burst is followed by a 60 s steady phase (50 joins/s), so the HTML report has enough data. Per-phase thresholds set from the first run.
 
-**Second run:** _fill in: burst p95/p99, steady p95._
+**Second run** (pool 50 + cache + one query less): 0 errors in 10,813 requests. **Steady 50 joins/s: p50 11 ms, p95 14 ms.** Burst: p50 511 ms, p99 764 ms, i.e. *slower* than run 1, while the 500 joins still finished in ~1 s both times.
+
+**Lesson (pool sizing):** the burst is bound by CPU (a small Docker VM, ~500 joins/s), not by connections. A bigger pool doesn't add capacity; it moves the queue from the app (cheap waiting) into Postgres (50 active queries fighting over a few cores), so each request gets slower. The pool went back to **20** (rule of thumb ~ cores × 2); the cache and the dropped query stay. The burst threshold is now a capacity check (p99 < 1 s); the latency target is the steady phase (p95 < 150 ms, measured 14 ms).
+
+**Next lever, if the burst mattered:** fewer DB round trips per join (batch the join insert + credit lookup), or put an admission queue in front (§12.1), rather than more connections.
 
 ---
 

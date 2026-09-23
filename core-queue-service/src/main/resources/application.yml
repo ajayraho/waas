@@ -13,9 +13,11 @@ spring:
     username: ${DB_USER:waas}
     password: ${DB_PASSWORD:waas}
     hikari:
-      # Sized from the k6 run: at 20, a 500-user burst queued for connections.
-      # Keep (instances x pool) under Postgres max_connections (100 by default).
-      maximum-pool-size: ${DB_POOL_SIZE:50}
+      # Measured with k6: raising this to 50 made a 500-user burst SLOWER (p99 445 -> 764 ms)
+      # at the same throughput. On a few CPU cores, more connections only means more work
+      # fighting inside Postgres. Rule of thumb: ~ cores x 2. Also keep
+      # (instances x pool) under Postgres max_connections (100 by default).
+      maximum-pool-size: ${DB_POOL_SIZE:20}
 
   data:
     redis:
