@@ -13,7 +13,9 @@ spring:
     username: ${DB_USER:waas}
     password: ${DB_PASSWORD:waas}
     hikari:
-      maximum-pool-size: ${DB_POOL_SIZE:20}
+      # Sized from the k6 run: at 20, a 500-user burst queued for connections.
+      # Keep (instances x pool) under Postgres max_connections (100 by default).
+      maximum-pool-size: ${DB_POOL_SIZE:50}
 
   data:
     redis:

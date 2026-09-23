@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -91,7 +92,6 @@ public class QueueService {
         if (!waitlist.active()) {
             throw ApiException.conflict("WAITLIST_CLOSED", "Waitlist is not accepting joins");
         }
-        users.findById(userId).orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "No user " + userId));
 
         var existing = entries.findActive(waitlistId, userId);
         if (existing.isPresent()) {
@@ -113,6 +113,9 @@ public class QueueService {
             // request won the unique index. Answer with the winner's entry.
             QueueEntry winner = entries.findActive(waitlistId, userId).orElseThrow(() -> race);
             return new JoinResponse(false, winner.id(), userId, repairAndLocate(winner));
+        } catch (DataIntegrityViolationException unknownUser) {
+            // No separate "does the user exist?" query: the user_id foreign key checks it.
+            throw ApiException.notFound("USER_NOT_FOUND", "No user " + userId);
         }
 
         queue.join(waitlistId, entry.id(), entry.queueScore());                    // 2. Redis

@@ -2,7 +2,9 @@ package com.waas.core.tenant;
 
 import com.waas.core.common.error.ApiException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,9 +27,21 @@ public class WaitlistService {
         this.domainEvents = domainEvents;
     }
 
+    // Waitlist config is read on almost every request but changes rarely, so keep it for a few
+    // seconds. Cleared on update here; another instance may see an old config for up to TTL.
+    private static final long CACHE_TTL_MS = 5_000;
+    private record Cached(Waitlist waitlist, long loadedAt) {}
+    private final Map<UUID, Cached> cache = new ConcurrentHashMap<>();
+
     public Waitlist require(UUID waitlistId) {
-        return repository.findById(waitlistId)
+        Cached c = cache.get(waitlistId);
+        if (c != null && System.currentTimeMillis() - c.loadedAt() < CACHE_TTL_MS) {
+            return c.waitlist();
+        }
+        Waitlist w = repository.findById(waitlistId)
                 .orElseThrow(() -> ApiException.notFound("WAITLIST_NOT_FOUND", "No waitlist " + waitlistId));
+        cache.put(waitlistId, new Cached(w, System.currentTimeMillis()));
+        return w;
     }
 
     public List<Waitlist> listActive() {
@@ -63,6 +77,7 @@ public class WaitlistService {
     public Waitlist updateConfig(UUID waitlistId, Integer servingCapacity, Integer reservationWindowSeconds) {
         Waitlist updated = repository.updateConfig(waitlistId, servingCapacity, reservationWindowSeconds)
                 .orElseThrow(() -> ApiException.notFound("WAITLIST_NOT_FOUND", "No waitlist " + waitlistId));
+        cache.remove(waitlistId);
         domainEvents.publishEvent(new WaitlistConfigChanged(waitlistId));
         return updated;
     }
