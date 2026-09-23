@@ -34,10 +34,16 @@ class ConcurrencyProofTest extends AbstractIntegrationTest {
     @Autowired StringRedisTemplate redis;
     @Autowired ReservationRedis reservationRedis;
 
+    // entry ids in queue order (members are entry UUIDs, like in the real queue)
+    private final List<String> members = new ArrayList<>();
+
     private UUID fillQueue() {
         UUID w = UUID.randomUUID(); // Redis-only test, no Postgres rows needed
+        members.clear();
         for (int i = 0; i < WAITING; i++) {
-            redis.opsForZSet().add(RedisKeys.queue(w), "m" + i, i);
+            String member = UUID.randomUUID().toString();
+            members.add(member);
+            redis.opsForZSet().add(RedisKeys.queue(w), member, i);
         }
         return w;
     }
@@ -93,7 +99,8 @@ class ConcurrencyProofTest extends AbstractIntegrationTest {
         System.out.printf("LUA:   %d reservations for %d slots%n", booked, CAPACITY);
         assertThat(booked).isEqualTo(CAPACITY);
         // and they're the first three in line
-        assertThat(redis.opsForZSet().range(RedisKeys.reserved(w), 0, -1)).containsExactlyInAnyOrder("m0", "m1", "m2");
+        assertThat(redis.opsForZSet().range(RedisKeys.reserved(w), 0, -1))
+                .containsExactlyInAnyOrderElementsOf(members.subList(0, CAPACITY));
     }
 
     private static void sleepQuietly() {
