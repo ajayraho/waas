@@ -885,6 +885,8 @@ Tests: `AuthAndAdmissionTest` (MockMvc: 401 without/forged token, register + log
 
 **Lesson (pool sizing):** the burst is bound by CPU (a small Docker VM, ~500 joins/s), not by connections. A bigger pool doesn't add capacity; it moves the queue from the app (cheap waiting) into Postgres (50 active queries fighting over a few cores), so each request gets slower. The pool went back to **20** (rule of thumb ~ cores × 2); the cache and the dropped query stay. The burst threshold is now a capacity check (p99 < 1 s); the latency target is the steady phase (p95 < 150 ms, measured 14 ms).
 
+**Third run** (pool 20 + cache + one query less): all thresholds pass, 0 errors in 10,813 requests. **Burst: 500 joins done in 0.4 s, join p50 46 ms / p95 179 ms / p99 336 ms** (run 1: 306 / 420 / 445 ms). Steady 50 joins/s: p95 13 ms. Position reads: p95 12 ms. Cutting per-request DB round trips was the real win; the pool size wasn't.
+
 **Next lever, if the burst mattered:** fewer DB round trips per join (batch the join insert + credit lookup), or put an admission queue in front (§12.1), rather than more connections.
 
 ---
