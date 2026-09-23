@@ -869,6 +869,20 @@ Tests: `AuthAndAdmissionTest` (MockMvc: 401 without/forged token, register + log
 - **Load test** (`load/join-burst.js`, k6): 500 guest accounts are created in `setup()`, then 500 virtual users each join the same waitlist at once and read their position. Thresholds: <1% failed requests, join p95 < 300 ms / p99 < 500 ms, position p95 < 100 ms. It runs in Docker on the compose network and exports `load/report.html` (k6 web dashboard with latency graphs). The script was validated against a mock (100% of checks passing, report generated); real numbers come from running it against the stack.
 - **CI** (`.github/workflows/ci.yml`): on every push and PR, `mvn -B verify` for Core and the gateway (Testcontainers on GitHub's Ubuntu runners), `npm ci && lint && build` for the frontend, then `docker compose build` once all three pass. Test reports are uploaded as artifacts when a job fails. This is also the first place every test runs automatically.
 
+
+### Performance pass (2026-09-24)
+
+**First k6 run** (500 simultaneous joins, laptop + Docker Desktop): 0% errors, ~960 req/s, join p50 306 ms / p95 420 ms / p99 445 ms, position p95 108 ms. The time was **queueing for DB connections**: Hikari pool = 20, and each join made ~6–8 short Postgres calls. Position reads are mostly Redis, hence ~10× faster.
+
+**Changes:**
+- Hikari pool 20 → 50 (`DB_POOL_SIZE`). Rule: instances × pool must stay under Postgres `max_connections` (100 by default).
+- Waitlist config cached in `WaitlistService` for 5 s, cleared on update. It's read on nearly every request and rarely changes. Trade-off: another Core instance may use an old config for up to 5 s.
+- Join no longer runs a separate "does this user exist?" query. The `user_id` foreign key enforces it and is mapped to `USER_NOT_FOUND`.
+- Result: a join makes ~3–4 Postgres calls instead of ~6–8.
+- k6 script: the burst is followed by a 60 s steady phase (50 joins/s), so the HTML report has enough data. Per-phase thresholds set from the first run.
+
+**Second run:** _fill in: burst p95/p99, steady p95._
+
 ---
 
 *Last updated: 2026-09-24*
