@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: websocket-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: ${PORT:8081}
+  shutdown: graceful
+
+gateway:
+  # Dev default. In production pin this to the dashboard's origin.
+  allowed-origins: ${ALLOWED_ORIGINS:*}
+  # Core serves the read models the gateway can't build from Redis alone (names, terminal states).
+  core-url: ${CORE_URL:http://localhost:8080}
+  fanout:
+    tick-ms: 500          # coalescing window: many events → one recompute per waitlist
+    full-refresh-ms: 5000 # self-heal for lost Pub/Sub messages
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+  info:
+    env:
+      enabled: true
+
+info:
+  service: websocket-gateway
