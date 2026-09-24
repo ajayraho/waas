@@ -13,6 +13,39 @@ export interface Waitlist {
   bumpAmount: number
   maxCapacity: number | null
   active: boolean
+  createdAt: string
+}
+
+/** One row of the waitlist directory: config plus live counts. */
+export interface WaitlistCard {
+  id: string
+  name: string
+  description: string | null
+  groupPolicy: 'STRICT' | 'PARTIAL'
+  servingCapacity: number
+  reservationWindowSeconds: number
+  bumpAmount: number
+  createdAt: string
+  waiting: number
+  reserved: number
+}
+
+export interface Directory {
+  /** the business the API key belongs to */
+  tenant: string
+  items: WaitlistCard[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface NewWaitlist {
+  name: string
+  description?: string
+  groupPolicy: 'STRICT' | 'PARTIAL'
+  servingCapacity: number
+  reservationWindowSeconds: number
+  bumpAmount: number
 }
 
 export interface AppUser {
@@ -45,6 +78,12 @@ export interface WaitingRow {
   score: number
   groupId: string | null
   groupSize: number
+  /** when the entry was created */
+  joinedAt: string | null
+  /** queue places gained from referrals */
+  boost: number
+  /** friends referred (credited) on this waitlist */
+  referrals: number
 }
 
 export interface ReservedRow {

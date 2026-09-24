@@ -8,9 +8,10 @@ const R = 26
 const CIRC = 2 * Math.PI * R
 
 function Ring({ fraction, lapsed }: { fraction: number; lapsed: boolean }) {
-  const urgent = fraction < 0.25
+  // indigo (calm) -> amber (act soon) -> orange (last quarter); red only once it has lapsed
+  const stage = fraction < 0.25 ? 'ring-urgent' : fraction < 0.5 ? 'ring-mid' : ''
   return (
-    <svg className={`ring ${urgent ? 'ring-urgent' : ''} ${lapsed ? 'ring-lapsed' : ''}`} viewBox="0 0 64 64" aria-hidden>
+    <svg className={`ring ${stage} ${lapsed ? 'ring-lapsed' : ''}`} viewBox="0 0 64 64" aria-hidden>
       <circle className="ring-track" cx="32" cy="32" r={R} />
       <circle className="ring-fill" cx="32" cy="32" r={R} strokeDasharray={CIRC} strokeDashoffset={CIRC * (1 - fraction)} />
     </svg>

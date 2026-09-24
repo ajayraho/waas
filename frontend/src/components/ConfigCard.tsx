@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { Waitlist } from '../api/types'
+import { tenant } from '../lib/tenant'
+import { Hint } from './Hint'
 
 const WINDOWS = [
   { label: '15 s', value: 15 },
@@ -25,7 +27,7 @@ export function ConfigCard({
   const [capacity, setCapacity] = useState(waitlist.servingCapacity)
   const [windowSec, setWindowSec] = useState(waitlist.reservationWindowSeconds)
   const [busy, setBusy] = useState(false)
-  const [apiKey, setApiKey] = useState('demo-api-key-001') // the seeded demo tenant's key
+  const [apiKey, setApiKey] = useState(tenant.key) // the business key from the directory page
 
   const dirty = capacity !== waitlist.servingCapacity || windowSec !== waitlist.reservationWindowSeconds
   const windows = WINDOWS.some((w) => w.value === windowSec)
@@ -34,9 +36,15 @@ export function ConfigCard({
 
   return (
     <section className="card" aria-labelledby="config-title">
-      <h2 id="config-title">Waitlist config</h2>
+      <h2 id="config-title">
+        Waitlist config
+        <Hint>Settings the business that owns this waitlist can change while it&apos;s running.</Hint>
+      </h2>
       <div className="config-row">
-        <label htmlFor="capacity">Serving slots</label>
+        <span>
+          <label htmlFor="capacity">Serving slots</label>
+          <Hint>How many people can hold a turn at the same time. More slots means the line moves faster.</Hint>
+        </span>
         <div className="stepper">
           <button className="btn btn-sm" aria-label="Fewer slots" disabled={capacity <= 1} onClick={() => setCapacity((c) => c - 1)}>
             −
@@ -48,7 +56,13 @@ export function ConfigCard({
         </div>
       </div>
       <div className="config-row">
-        <label htmlFor="window">Checkout window</label>
+        <span>
+          <label htmlFor="window">Checkout window</label>
+          <Hint>
+            How long someone has to confirm once it&apos;s their turn. If the time runs out they&apos;re marked
+            expired and the slot goes to the next person.
+          </Hint>
+        </span>
         <select id="window" value={windowSec} onChange={(e) => setWindowSec(Number(e.target.value))}>
           {windows.map((w) => (
             <option key={w.value} value={w.value}>
@@ -58,7 +72,13 @@ export function ConfigCard({
         </select>
       </div>
       <div className="config-row">
-        <label htmlFor="apikey">Tenant API key</label>
+        <span>
+          <label htmlFor="apikey">Tenant API key</label>
+          <Hint>
+            Proves you&apos;re the business that owns this waitlist. A key from a different business gets <b>404</b>,
+            not 403, so other businesses can&apos;t even tell this waitlist exists.
+          </Hint>
+        </span>
         <input id="apikey" className="key-input mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
       </div>
       <button

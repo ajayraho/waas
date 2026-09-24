@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchHealth, type Health, type ServiceName } from '../lib/health'
 import type { SocketState } from '../lib/stomp'
+import { Hint } from './Hint'
 
 type Probe = { health?: Health; error?: string }
 
@@ -104,7 +105,13 @@ export function StatusPanel({ socket }: { socket: SocketState }) {
 
   return (
     <section className="card" aria-labelledby="status-title">
-      <h2 id="status-title">System status</h2>
+      <h2 id="status-title">
+        System status
+        <Hint>
+          Health of each backend service and what it depends on, checked every 5 seconds. <b>Pushes out</b> is lower
+          than <b>events in</b> because the gateway batches changes into one update every half second.
+        </Hint>
+      </h2>
       <ServiceBlock title="core-queue-service" probe={core} deps={['db', 'redis']} />
       <ServiceBlock title="websocket-gateway" probe={gateway} deps={['redis']} />
       <div className="status-block">

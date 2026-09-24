@@ -103,14 +103,14 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 export function IdentityChip({ name, onSignIn, onSignOut }: { name?: string; onSignIn: () => void; onSignOut: () => void }) {
   if (!name) {
     return (
-      <motion.button whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} className="btn btn-sm btn-primary" onClick={onSignIn}>
-        Sign in
+      <motion.button whileTap={{ scale: 0.96 }} className="btn btn-sm" onClick={onSignIn}>
+        → Sign in
       </motion.button>
     )
   }
   return (
     <motion.div className="identity" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
-      <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
+      <span className="avatar">{name.slice(0, 1).toLowerCase()}</span>
       <span className="identity-name">{name}</span>
       <button className="link-btn" onClick={onSignOut}>
         sign out

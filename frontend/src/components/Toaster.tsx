@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { toast, useToasts } from '../lib/toast'
 
-const ICON = { info: 'ℹ', success: '✓', warn: '!', error: '×', turn: '★' } as const
+const ICON = { info: '→', success: '✓', warn: '!', error: '×', turn: '✳' } as const
 
 export function Toaster() {
   const items = useToasts()

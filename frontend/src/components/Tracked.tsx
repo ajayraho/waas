@@ -6,6 +6,7 @@ import { celebrate } from '../lib/celebrate'
 import { countdown } from '../lib/format'
 import { useLiveJson } from '../lib/stomp'
 import { toast } from '../lib/toast'
+import { Hint } from './Hint'
 
 export interface TrackedEntry {
   entryId: string
@@ -26,7 +27,14 @@ type Actions = {
 export function Tracked({ entries, live, ...actions }: { entries: TrackedEntry[]; live: boolean } & Actions) {
   return (
     <section className="card" aria-labelledby="tracked-title">
-      <h2 id="tracked-title">Your people</h2>
+      <h2 id="tracked-title">
+        Your people
+        <Hint>
+          The people you joined by name, shown the way their own phones would see it: live position, a countdown when
+          it&apos;s their turn, and referral credits. Only people still <b>waiting</b> can refer a friend, since they&apos;re
+          the only ones who can still move up.
+        </Hint>
+      </h2>
       {entries.length === 0 ? (
         <p className="muted small">People you join by name show up here with their live position.</p>
       ) : (
@@ -94,14 +102,23 @@ function TrackedRow({ t, live, onForget, onConfirm, onRefer }: { t: TrackedEntry
         </button>
       </div>
       <div className="tracked-sub">
-        <span className="muted">
+        <span className={c && c.earned > 0 ? 'credits-line' : 'muted'}>
           {c && c.earned > 0
             ? `credits ${c.earned} · used ${c.applied}${c.pending ? ` · banked ${c.pending}` : ''}${c.rejected ? ` · ${c.rejected} blocked` : ''}`
             : 'no referrals yet'}
+          {c && (c.earned > 0 || c.rejected > 0) && (
+            <Hint>
+              <b>Credits</b>: places earned from referrals (bump × friends who joined). <b>Used</b>: places this person
+              actually moved up. <b>Banked</b>: credits they couldn&apos;t use yet, because nobody can go past #1. They
+              kick in if this person joins again. <b>Blocked</b>: referrals over the limit, recorded but worth nothing.
+            </Hint>
+          )}
         </span>
-        <button className="link-btn" onClick={() => onRefer(t)}>
-          Refer a friend
-        </button>
+        {p?.state === 'WAITING' && (
+          <button className="link-btn" onClick={() => onRefer(t)}>
+            Refer a friend
+          </button>
+        )}
       </div>
     </motion.li>
   )

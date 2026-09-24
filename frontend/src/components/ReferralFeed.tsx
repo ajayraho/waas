@@ -1,5 +1,6 @@
 import type { ReferralActivity } from '../api/types'
 import { useNow } from '../hooks/usePolling'
+import { Hint } from './Hint'
 
 const REASONS: Record<string, string> = { VELOCITY_LIMIT: 'velocity limit' }
 
@@ -13,7 +14,14 @@ export function ReferralFeed({ items, bumpAmount }: { items: ReferralActivity[];
   const now = useNow(5000) // a feed's "12s ago" doesn't need a fast clock
   return (
     <section className="card" aria-labelledby="feed-title">
-      <h2 id="feed-title">Referrals</h2>
+      <h2 id="feed-title">
+        Referrals
+        <Hint>
+          Every referral on this waitlist. <b>+{bumpAmount}</b>: the referrer moved up {bumpAmount} place
+          {bumpAmount === 1 ? '' : 's'} because their friend joined. <b>Blocked</b>: the same person referred too many
+          friends too quickly (anti-abuse). It&apos;s still recorded for the audit trail, but earns nothing.
+        </Hint>
+      </h2>
       {items.length === 0 ? (
         <p className="muted small">
           Press ↑ on a waiting row: a new friend joins through that person&apos;s link and they move up{' '}
@@ -23,7 +31,7 @@ export function ReferralFeed({ items, bumpAmount }: { items: ReferralActivity[];
         <ul className="feed">
           {items.map((a) => (
             <li key={`${a.referrerId}-${a.refereeId}`} className="feed-row">
-              <span className={`state-pill ${a.status === 'CREDITED' ? 'state-confirmed' : 'state-expired'}`}>
+              <span className={`state-pill ${a.status === 'CREDITED' ? 'pill-boost' : 'state-expired'}`}>
                 {a.status === 'CREDITED' ? `+${bumpAmount}` : 'blocked'}
               </span>
               <span className="feed-text">

@@ -2,9 +2,11 @@ import { session } from '../lib/session'
 import type {
   AppUser,
   CreditLedger,
+  Directory,
   EntryPosition,
   GroupView,
   JoinResponse,
+  NewWaitlist,
   QueueSnapshot,
   ReferralActivity,
   Waitlist,
@@ -72,7 +74,12 @@ export const api = {
     request<TokenResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
   // ---- queue ----
-  waitlists: () => request<Waitlist[]>('/api/waitlists'),
+  // ---- waitlists (the business's directory needs its API key) ----
+  directory: (apiKey: string, q: string, page: number, size: number, signal?: AbortSignal) =>
+    request<Directory>(`/api/waitlists?${new URLSearchParams({ q, page: String(page), size: String(size) })}`, { apiKey, signal }),
+  createWaitlist: (apiKey: string, body: NewWaitlist) =>
+    request<Waitlist>('/api/waitlists', { method: 'POST', apiKey, body: JSON.stringify(body) }),
+  waitlist: (id: string, signal?: AbortSignal) => request<Waitlist>(`/api/waitlists/${id}`, { signal }),
   snapshot: (waitlistId: string, limit = 50, signal?: AbortSignal) =>
     request<QueueSnapshot>(`/api/waitlists/${waitlistId}/queue?limit=${limit}`, { signal }),
   join: (waitlistId: string, userId: string, ref?: string) =>
