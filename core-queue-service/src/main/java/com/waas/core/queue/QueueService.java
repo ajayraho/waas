@@ -185,7 +185,8 @@ public class QueueService {
         for (Scored w : s.waiting()) {
             var o = owners.get(w.entryId());
             waiting.add(new WaitingRow(position++, w.entryId(), o == null ? null : o.userId(),
-                    o == null ? "?" : o.userName(), w.score(), o == null ? null : o.groupId(), o == null ? 0 : o.groupSize()));
+                    o == null ? "?" : o.userName(), w.score(), o == null ? null : o.groupId(), o == null ? 0 : o.groupSize(),
+                    o == null ? null : o.joinedAt(), o == null ? 0 : o.boost(), o == null ? 0 : o.referrals()));
         }
         return new QueueSnapshot(waitlistId, waitlist.servingCapacity(), s.queueSize(), s.reservedSize(),
                 s.confirmed(), s.expired(), reserved, waiting, clock.instant());

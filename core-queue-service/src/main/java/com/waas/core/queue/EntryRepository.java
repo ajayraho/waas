@@ -2,6 +2,7 @@ package com.waas.core.queue;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -109,7 +110,12 @@ public class EntryRepository {
     }
 
     /** groupSize/groupConfirmed are 0 for entries that aren't part of a group. */
-    public record EntryOwner(UUID entryId, UUID userId, String userName, UUID groupId, int groupSize, int groupConfirmed) {}
+    /**
+     * @param boost     queue places this entry actually gained from referrals (total_bumps_applied)
+     * @param referrals friends this user brought in on this waitlist that earned credit
+     */
+    public record EntryOwner(UUID entryId, UUID userId, String userName, UUID groupId, int groupSize, int groupConfirmed,
+                             Instant joinedAt, int boost, int referrals) {}
 
     /** Display data for a page of entries. Called with at most one page (≤ 200 ids). */
     public Map<UUID, EntryOwner> findOwners(Collection<UUID> entryIds) {
@@ -117,16 +123,21 @@ public class EntryRepository {
             return Map.of();
         }
         return jdbc.sql("""
-                        SELECT e.id, e.user_id, u.name, e.group_id,
+                        SELECT e.id, e.user_id, u.name, e.group_id, e.created_at, e.total_bumps_applied,
                                (SELECT COUNT(*) FROM group_member gm WHERE gm.group_id = e.group_id) AS group_size,
-                               (SELECT COUNT(*) FROM group_member gm WHERE gm.group_id = e.group_id AND gm.has_confirmed) AS group_confirmed
+                               (SELECT COUNT(*) FROM group_member gm WHERE gm.group_id = e.group_id AND gm.has_confirmed) AS group_confirmed,
+                               (SELECT COUNT(*) FROM referral r
+                                 WHERE r.waitlist_id = e.waitlist_id AND r.referrer_id = e.user_id
+                                   AND r.status = 'CREDITED') AS referrals
                           FROM waitlist_entry e JOIN app_user u ON u.id = e.user_id
                          WHERE e.id IN (:ids)
                         """)
                 .param("ids", entryIds)
                 .query((rs, i) -> new EntryOwner(
                         rs.getObject("id", UUID.class), rs.getObject("user_id", UUID.class), rs.getString("name"),
-                        rs.getObject("group_id", UUID.class), rs.getInt("group_size"), rs.getInt("group_confirmed")))
+                        rs.getObject("group_id", UUID.class), rs.getInt("group_size"), rs.getInt("group_confirmed"),
+                        rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                        rs.getInt("total_bumps_applied"), rs.getInt("referrals")))
                 .list()
                 .stream()
                 .collect(Collectors.toMap(EntryOwner::entryId, Function.identity()));

@@ -27,8 +27,13 @@ public final class QueueViews {
     /** Join result. {@code created} = false means an idempotent repeat of an earlier join. */
     public record JoinResponse(boolean created, UUID entryId, UUID userId, EntryPosition position) {}
 
+    /**
+     * @param joinedAt  when the entry was created
+     * @param boost     places gained from referrals
+     * @param referrals friends referred (credited) on this waitlist
+     */
     public record WaitingRow(long position, UUID entryId, UUID userId, String name, double score,
-                             UUID groupId, int groupSize) {}
+                             UUID groupId, int groupSize, Instant joinedAt, int boost, int referrals) {}
 
     public record ReservedRow(UUID entryId, UUID userId, String name, Instant expiresAt,
                               UUID groupId, int groupSize, int groupConfirmed) {}

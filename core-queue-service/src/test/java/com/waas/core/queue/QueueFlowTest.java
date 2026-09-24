@@ -40,6 +40,11 @@ class QueueFlowTest extends AbstractIntegrationTest {
 
         assertThat(s.waiting()).extracting(WaitingRow::name).startsWith("Alice", "Bob", "Carol", "Dave", "Eve");
         assertThat(s.waiting().get(0).score()).isEqualTo(1.0);
+        // Alice's row carries her referral story: 4 places gained, 3 friends, and when she joined
+        WaitingRow alice = s.waiting().get(0);
+        assertThat(alice.boost()).isEqualTo(4);
+        assertThat(alice.referrals()).isEqualTo(3);
+        assertThat(alice.joinedAt()).isBefore(s.at());
         assertThat(s.reserved()).singleElement().satisfies(r -> assertThat(r.name()).isEqualTo("Frank"));
     }
 
