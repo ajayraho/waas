@@ -1,5 +1,6 @@
 package com.waas.core.tenant;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /** A waitlist's configuration: the per-tenant knobs that make the platform generic (§4). */
@@ -13,4 +14,5 @@ public record Waitlist(
         int reservationWindowSeconds,
         int bumpAmount,
         Integer maxCapacity,
-        boolean active) {}
+        boolean active,
+        Instant createdAt) {}

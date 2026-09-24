@@ -75,6 +75,11 @@ INSERT INTO waitlist_entry (id, waitlist_id, user_id, state, join_sequence, queu
      '20000000-0000-0000-0000-000000000009', 'WAITING', 9, 9,   0, NULL, NULL)       -- Ivan
 ON CONFLICT DO NOTHING;
 
+-- Spread the demo joins over the last ~40 minutes so "joined 12 min ago" looks like a real line.
+UPDATE waitlist_entry
+   SET created_at = NOW() - (10 - join_sequence) * INTERVAL '4 minutes' - INTERVAL '3 minutes'
+ WHERE id::text LIKE '30000000-%';
+
 INSERT INTO referral (waitlist_id, referrer_id, referee_id) VALUES
     ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000007'),
     ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000008'),
@@ -83,6 +88,46 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO referral_credit (waitlist_id, user_id, pending_credits, total_credits_earned, total_credits_applied) VALUES
     ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', 2, 6, 4)
+ON CONFLICT DO NOTHING;
+
+-- ----------------------------------------------------------------
+-- More waitlists, so the directory page has something to search and page through,
+-- and a second business to show tenant isolation: with key demo-api-key-002 you see
+-- only Nimbus Games' waitlists, and Demo Corp's are invisible (and 404 by id for admin calls).
+-- ----------------------------------------------------------------
+INSERT INTO tenant (id, name, api_key) VALUES
+    ('00000000-0000-0000-0000-000000000002', 'Nimbus Games', 'demo-api-key-002')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO waitlist (id, tenant_id, name, description, group_policy,
+                      serving_capacity, reservation_window_seconds, bump_amount, created_at) VALUES
+    ('10000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001',
+     'Concert Presale', 'Front-row presale, five checkout windows', 'PARTIAL', 5, 480, 2, NOW() - INTERVAL '2 days'),
+    ('10000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001',
+     'Clinic Walk-ins', 'Two doctors on shift, see the next patient', 'PARTIAL', 2, 900, 1, NOW() - INTERVAL '3 days'),
+    ('10000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001',
+     'Rooftop Dinner', 'Tables for groups, seated together', 'STRICT', 4, 1200, 1, NOW() - INTERVAL '4 days'),
+    ('10000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001',
+     'Bootcamp Cohort', 'Twenty seats per cohort', 'PARTIAL', 20, 3600, 3, NOW() - INTERVAL '6 days'),
+    ('10000000-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000001',
+     'Vinyl Pressing', 'Limited run of 300 records', 'PARTIAL', 3, 300, 2, NOW() - INTERVAL '9 days'),
+    ('11000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002',
+     'Starfall Beta', 'Early access to the Starfall closed beta', 'PARTIAL', 10, 1800, 3, NOW() - INTERVAL '1 day'),
+    ('11000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002',
+     'Dev Stream Q&A', 'Ask the devs, one question at a time', 'PARTIAL', 1, 120, 1, NOW() - INTERVAL '5 days')
+ON CONFLICT DO NOTHING;
+
+-- A few people waiting in each, reusing the demo users. ON CONFLICT covers the
+-- one-active-entry-per-user index, so re-running the seed never duplicates anyone.
+INSERT INTO waitlist_entry (waitlist_id, user_id, state, queue_score, created_at)
+SELECT w.id::uuid, u.id, 'WAITING', u.n, NOW() - (u.n * INTERVAL '6 minutes')
+  FROM (VALUES ('10000000-0000-0000-0000-000000000004', 7),
+               ('10000000-0000-0000-0000-000000000005', 3),
+               ('10000000-0000-0000-0000-000000000007', 5),
+               ('11000000-0000-0000-0000-000000000001', 6),
+               ('11000000-0000-0000-0000-000000000002', 2)) AS w(id, cnt)
+  JOIN (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS n
+          FROM app_user WHERE id::text LIKE '20000000-%') AS u ON u.n <= w.cnt
 ON CONFLICT DO NOTHING;
 
 -- Keep the sequence ahead of seeded join_sequence values.
